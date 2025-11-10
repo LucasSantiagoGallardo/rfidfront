@@ -1,16 +1,16 @@
-'use client';
+import LectoresCRUD from "@/app/(DashboardLayout)/components/lectores/LectoresCRUD";
+import LectorMonitor from "@/app/(DashboardLayout)/components/lectores/LectorMonitor";
+import ActividadLecturas from "@/app/(DashboardLayout)/components/lectores/ActividadLecturas";
+import { Box, Divider } from "@mui/material";
 
-import PageContainer from '../(DashboardLayout)/components/container/PageContainer';
- import Lectores from '../(DashboardLayout)/components/lectores/LectoresCRUD';
-
-const Dashboard = () => {
+export default function Page() {
   return (
-    <PageContainer title="Control LECTORES"  description="Administración de usuarios del sistema">
-        
-      <Lectores/>        
-      
-    </PageContainer>
+    <Box sx={{ p: 3 }}>
+      <LectorMonitor />
+      <Divider sx={{ my: 4 }} />
+      <ActividadLecturas />
+      <Divider sx={{ my: 4 }} />
+      <LectoresCRUD />
+    </Box>
   );
-};
-
-export default Dashboard;
+}

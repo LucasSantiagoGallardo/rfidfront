@@ -1,265 +1,226 @@
-'use client';
-import React, { useState, useEffect } from 'react';
+"use client";
+import React, { useEffect, useState } from "react";
 import {
-  Box, Button, Typography, Modal, Grid, TextField, IconButton, Tooltip, Checkbox, FormControlLabel
-} from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import CircularProgress from '@mui/material/CircularProgress';
-import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
-import DoorFrontIcon from '@mui/icons-material/DoorFront';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import Swal from 'sweetalert2';
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  TextField,
+  Typography,
+  Snackbar,
+  Alert,
+  IconButton,
+} from "@mui/material";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { Add, Edit, Delete } from "@mui/icons-material";
+import api from "@/lib/api";
+import LectorDetail from "./LectorDetail";
 
-const API_URL = "http://192.168.0.112:8000"; // tu backend FastAPI
 
 interface Lector {
   nombre: string;
   ip: string;
   puerto: number;
+  endpoint: string;
   rele_on: string;
   rele_off: string;
-  endpoint: string;
   rtsp_url?: string;
   lectura_auto?: boolean;
 }
 
-type LectorEstado = {
-  conectado?: boolean;
-  ultimo_uid?: string;
-  error?: boolean;
-};
-
 export default function LectoresCRUD() {
   const [lectores, setLectores] = useState<Lector[]>([]);
-  const [estados, setEstados] = useState<Record<string, LectorEstado>>({});
-  const [refreshing, setRefreshing] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Lector | null>(null);
-  const [form, setForm] = useState<Lector>({
-    nombre: '', ip: '', puerto: 0, rele_on: '', rele_off: '', endpoint: '',
-    rtsp_url: '', lectura_auto: true
+  const [loading, setLoading] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [editando, setEditando] = useState<Lector | null>(null);
+  const [snack, setSnack] = useState<{ open: boolean; message: string; type: "success" | "error" }>({
+    open: false,
+    message: "",
+    type: "success",
   });
-  const [leyendo, setLeyendo] = useState<string | null>(null);
+const [selected, setSelected] = useState<string | null>(null);
+
+  const cargarLectores = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/lectores");
+      setLectores(res.data);
+    } catch (err) {
+      console.error(err);
+      setSnack({ open: true, message: "Error al cargar lectores", type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetchLectores();
-    fetchEstados();
-    const timer = setInterval(fetchEstados, 5000);
-    return () => clearInterval(timer);
+    cargarLectores();
   }, []);
 
-  const fetchLectores = async () => {
-    try {
-      const res = await fetch(`${API_URL}/lectores`);
-      if (res.ok) {
-        setLectores(await res.json());
-      }
-    } catch {
-      Swal.fire('Error', 'No se pudieron cargar los lectores', 'error');
-    }
-  };
-
-  const fetchEstados = async () => {
-    setRefreshing(true);
-    try {
-      const res = await fetch(`${API_URL}/estado-lectores`);
-      const data = await res.json();
-      setEstados(data);
-    } catch {
-      setEstados({});
-    }
-    setRefreshing(false);
-  };
-
-  const handleOpen = (lector?: Lector) => {
-    setEditing(lector ?? null);
-    setForm(lector ?? {
-      nombre: '', ip: '', puerto: 0, rele_on: '', rele_off: '', endpoint: '',
-      rtsp_url: '', lectura_auto: true
-    });
-    setOpen(true);
-  };
-
-  const handleClose = () => {
-    setOpen(false);
-    setEditing(null);
-    setForm({
-      nombre: '', ip: '', puerto: 0, rele_on: '', rele_off: '', endpoint: '',
-      rtsp_url: '', lectura_auto: true
-    });
-  };
-
-  // ✅ CRUD REAL (MySQL persistente)
   const handleSave = async () => {
     try {
-      const method = editing ? 'PUT' : 'POST';
-      const url = editing
-        ? `${API_URL}/lectores/${form.endpoint}`
-        : `${API_URL}/lectores`;
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-
-      if (res.ok) {
-        Swal.fire('Éxito', 'Lector guardado correctamente', 'success');
-        fetchLectores();
-      } else {
-        Swal.fire('Error', 'No se pudo guardar el lector', 'error');
+      if (editando && lectores.some((l) => l.endpoint === editando.endpoint)) {
+        await api.put(`/lectores/${editando.endpoint}`, editando);
+        setSnack({ open: true, message: "Lector actualizado", type: "success" });
+      } else if (editando) {
+        await api.post("/lectores", editando);
+        setSnack({ open: true, message: "Lector creado", type: "success" });
       }
-    } catch (e) {
-      Swal.fire('Error', String(e), 'error');
-    } finally {
-      handleClose();
+      setOpenDialog(false);
+      setEditando(null);
+      cargarLectores();
+    } catch (err) {
+      console.error(err);
+      setSnack({ open: true, message: "Error al guardar lector", type: "error" });
     }
   };
 
-  const handleDelete = async (lector: Lector) => {
-    const confirm = await Swal.fire({
-      title: `¿Eliminar ${lector.nombre}?`,
-      text: 'Esta acción no se puede deshacer',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Sí, eliminar',
-      cancelButtonText: 'Cancelar'
-    });
-
-    if (!confirm.isConfirmed) return;
-
+  const handleDelete = async (endpoint: string) => {
+    if (!confirm("¿Seguro que deseas eliminar este lector?")) return;
     try {
-      const res = await fetch(`${API_URL}/lectores/${lector.endpoint}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        Swal.fire('Eliminado', 'Lector borrado correctamente', 'success');
-        fetchLectores();
-      } else {
-        Swal.fire('Error', 'No se pudo eliminar el lector', 'error');
-      }
-    } catch {
-      Swal.fire('Error', 'Fallo de conexión al backend', 'error');
+      await api.delete(`/lectores/${endpoint}`);
+      setSnack({ open: true, message: "Lector eliminado", type: "success" });
+      cargarLectores();
+    } catch (err) {
+      console.error(err);
+      setSnack({ open: true, message: "Error al eliminar lector", type: "error" });
     }
   };
 
-  const handleAbrir = async (lector: Lector) => {
-    await fetch(`${API_URL}/barrera-control?endpoint=${encodeURIComponent(lector.endpoint)}&action=open`);
-    fetchEstados();
-  };
-
-  const handleCerrar = async (lector: Lector) => {
-    await fetch(`${API_URL}/barrera-control?endpoint=${encodeURIComponent(lector.endpoint)}&action=close`);
-    fetchEstados();
-  };
+  const columns: GridColDef[] = [
+    { field: "nombre", headerName: "Nombre", flex: 1 },
+    { field: "ip", headerName: "IP", flex: 1 },
+    { field: "puerto", headerName: "Puerto", flex: 0.6 },
+    { field: "endpoint", headerName: "Endpoint", flex: 1 },
+    {
+      field: "acciones",
+      headerName: "Acciones",
+      flex: 0.8,
+      renderCell: (params) => (
+        <>
+          <IconButton color="primary" onClick={() => { setEditando(params.row); setOpenDialog(true); }}>
+            <Edit />
+          </IconButton>
+          <IconButton color="error" onClick={() => handleDelete(params.row.endpoint)}>
+            <Delete />
+          </IconButton>
+        </>
+      ),
+    },
+  ];
 
   return (
-    <Box>
-      <Typography variant="h4" mb={2}>Configuración de Lectores</Typography>
-      <Button startIcon={<AddIcon />} variant="contained" onClick={() => handleOpen()}>Nuevo Lector</Button>
-      <IconButton sx={{ ml: 2 }} onClick={fetchEstados} disabled={refreshing}>
-        <RefreshIcon />
-      </IconButton>
+    <Box sx={{ p: 4 }}>
+      <Typography variant="h5" gutterBottom fontWeight="bold">
+        Gestión de Lectores RFID
+      </Typography>
 
-      <Box mt={2}>
-        {lectores.length === 0 && <Typography>No hay lectores configurados.</Typography>}
-        {lectores.map(lector => {
-          const estado = estados[lector.endpoint] || {};
-          return (
-            <Box key={lector.endpoint} sx={{
-              display: 'flex', alignItems: 'center', gap: 2, bgcolor: '#f5f5f5',
-              p: 2, borderRadius: 2, mb: 2, boxShadow: 1,
-              transition: 'box-shadow .2s', '&:hover': { boxShadow: 4 }
-            }}>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="subtitle1" fontWeight="bold">{lector.nombre}</Typography>
-                <Typography variant="body2">Endpoint: {lector.endpoint}</Typography>
-                <Typography variant="body2">IP: {lector.ip}:{lector.puerto}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Rele On: {lector.rele_on} | Rele Off: {lector.rele_off}
-                </Typography>
-                {lector.rtsp_url && <Typography variant="body2" color="primary">RTSP: {lector.rtsp_url}</Typography>}
-                <Typography variant="body2" color={
-                  estado.conectado ? "success.main" : estado.error ? "error.main" : "text.secondary"
-                }>
-                  Estado:&nbsp;
-                  {estado.conectado
-                    ? <MeetingRoomOutlinedIcon color="success" fontSize="small" />
-                    : estado.error
-                      ? "Error"
-                      : <span style={{ color: "#888" }}>Desconectado</span>}
-                </Typography>
-                <Typography variant="body2" color="info.main">
-                  Último tag leído: {estado.ultimo_uid || "Ninguno"}
-                </Typography>
-                <Typography variant="body2">
-                  Modo: {lector.lectura_auto ? "Lectura continua" : "Lectura bajo demanda"}
-                </Typography>
-                {leyendo === lector.endpoint && <CircularProgress size={24} sx={{ ml: 2 }} />}
-              </Box>
+      <Button
+        variant="contained"
+        startIcon={<Add />}
+        sx={{ mb: 2 }}
+        onClick={() => {
+          setEditando({
+            nombre: "",
+            ip: "",
+            puerto: 0,
+            endpoint: "",
+            rele_on: "",
+            rele_off: "",
+            rtsp_url: "",
+            lectura_auto: true,
+          });
+          setOpenDialog(true);
+        }}
+      >
+        Agregar Lector
+      </Button>
 
-              <Tooltip title="Abrir barrera">
-                <span>
-                  <IconButton color="success" onClick={() => handleAbrir(lector)}>
-                    <MeetingRoomOutlinedIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
+      <div style={{ height: 300, width: "100%" }}>
+        <DataGrid
+          rows={lectores.map((l, i) => ({ id: i, ...l }))}
+          columns={columns}
+          pageSizeOptions={[5, 10]}
+          loading={loading}
+          disableRowSelectionOnClick
+        />
+        <LectorDetail
+  open={Boolean(selected)}
+  endpoint={selected}
+  onClose={() => setSelected(null)}
+/>
+      </div>
 
-              <Tooltip title="Cerrar barrera">
-                <span>
-                  <IconButton color="primary" onClick={() => handleCerrar(lector)}>
-                    <DoorFrontIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
-
-              <Tooltip title="Editar">
-                <IconButton onClick={() => handleOpen(lector)}>
-                  <EditIcon />
-                </IconButton>
-              </Tooltip>
-
-              <Tooltip title="Eliminar">
-                <IconButton onClick={() => handleDelete(lector)}>
-                  <DeleteIcon color="error" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          );
-        })}
-      </Box>
-
-      {/* Modal ABM */}
-      <Modal open={open} onClose={handleClose}>
-        <Box sx={{
-          position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-          bgcolor: 'background.paper', p: 4, borderRadius: 3, width: 400, boxShadow: 8
-        }}>
-          <Typography variant="h6" mb={2}>{editing ? 'Editar Lector' : 'Nuevo Lector'}</Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12}><TextField label="Nombre" fullWidth value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></Grid>
-            <Grid item xs={12}><TextField label="Endpoint" fullWidth value={form.endpoint} onChange={e => setForm(f => ({ ...f, endpoint: e.target.value }))} /></Grid>
-            <Grid item xs={8}><TextField label="IP" fullWidth value={form.ip} onChange={e => setForm(f => ({ ...f, ip: e.target.value }))} /></Grid>
-            <Grid item xs={4}><TextField label="Puerto" fullWidth type="number" value={form.puerto} onChange={e => setForm(f => ({ ...f, puerto: Number(e.target.value) }))} /></Grid>
-            <Grid item xs={6}><TextField label="Rele ON (hex)" fullWidth value={form.rele_on} onChange={e => setForm(f => ({ ...f, rele_on: e.target.value }))} /></Grid>
-            <Grid item xs={6}><TextField label="Rele OFF (hex)" fullWidth value={form.rele_off} onChange={e => setForm(f => ({ ...f, rele_off: e.target.value }))} /></Grid>
-            <Grid item xs={12}><TextField label="RTSP URL" fullWidth value={form.rtsp_url} onChange={e => setForm(f => ({ ...f, rtsp_url: e.target.value }))} /></Grid>
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={<Checkbox checked={form.lectura_auto ?? true}
-                  onChange={e => setForm(f => ({ ...f, lectura_auto: e.target.checked }))} />}
-                label="Lectura automática (loop continuo)"
+      {/* Dialogo Crear/Editar */}
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editando && lectores.some((l) => l.endpoint === editando.endpoint) ? "Editar Lector" : "Nuevo Lector"}</DialogTitle>
+        <DialogContent>
+          {editando && (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+              <TextField
+                label="Nombre"
+                value={editando.nombre}
+                onChange={(e) => setEditando({ ...editando, nombre: e.target.value })}
+                fullWidth
               />
-            </Grid>
-          </Grid>
-          <Box mt={3} display="flex" justifyContent="flex-end" gap={2}>
-            <Button variant="contained" onClick={handleSave}>Guardar</Button>
-            <Button variant="outlined" onClick={handleClose}>Cancelar</Button>
-          </Box>
-        </Box>
-      </Modal>
+              <TextField
+                label="IP"
+                value={editando.ip}
+                onChange={(e) => setEditando({ ...editando, ip: e.target.value })}
+                fullWidth
+              />
+              <TextField
+                label="Puerto"
+                type="number"
+                value={editando.puerto}
+                onChange={(e) => setEditando({ ...editando, puerto: Number(e.target.value) })}
+                fullWidth
+              />
+              <TextField
+                label="Endpoint"
+                value={editando.endpoint}
+                onChange={(e) => setEditando({ ...editando, endpoint: e.target.value })}
+                fullWidth
+              />
+              <TextField
+                label="Comando Rele ON"
+                value={editando.rele_on}
+                onChange={(e) => setEditando({ ...editando, rele_on: e.target.value })}
+                fullWidth
+              />
+              <TextField
+                label="Comando Rele OFF"
+                value={editando.rele_off}
+                onChange={(e) => setEditando({ ...editando, rele_off: e.target.value })}
+                fullWidth
+              />
+              <TextField
+                label="RTSP URL"
+                value={editando.rtsp_url || ""}
+                onChange={(e) => setEditando({ ...editando, rtsp_url: e.target.value })}
+                fullWidth
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenDialog(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={handleSave}>Guardar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar de notificaciones */}
+      <Snackbar
+        open={snack.open}
+        autoHideDuration={3000}
+        onClose={() => setSnack({ ...snack, open: false })}
+      >
+        <Alert severity={snack.type} sx={{ width: "100%" }}>
+          {snack.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
